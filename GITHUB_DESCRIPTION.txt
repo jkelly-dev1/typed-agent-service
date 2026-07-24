@@ -1,0 +1,1 @@
+Typed AI agent service (TypeScript): Zod 4 tool schemas as the single source of truth (runtime validation, inferred types, generated JSON Schema), a bounded provider-agnostic tool-use loop, SSE streaming, and an RFC 9457 problem+json error boundary. Provider seam (mock/Anthropic/OpenAI), Fastify 5, every claim mapped to a test.
