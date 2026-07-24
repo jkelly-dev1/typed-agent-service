@@ -14,9 +14,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.113.0",
+    "@anthropic-ai/sdk": "^0.114.0",
     "fastify": "^5.10.0",
-    "openai": "^6.48.0",
+    "openai": "^6.49.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
