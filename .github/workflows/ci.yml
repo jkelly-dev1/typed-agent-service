@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Maintained LTS lines as of 2026-07: 22 = Maintenance LTS, 24 = Active LTS.
+        node-version: ['22.x', '24.x']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      # Typechecks the service AND the web client. They have separate
+      # tsconfigs: the service is NodeNext with no DOM, the client is bundler
+      # resolution with JSX and DOM. One config cannot describe both, and
+      # leaving the client out means the typed half of a repository called
+      # typed-agent-service is not actually typechecked.
+      - run: npm run typecheck
+      # Runs both suites: the service in a node environment, the web client
+      # in happy-dom. `npm test` chains them so a failure in either is a red
+      # build.
+      - run: npm test
+      # The client has to BUILD, not just typecheck. A broken import or a
+      # missing asset passes tsc and fails vite, and this is the only step
+      # that would catch it.
+      - run: npm run web:build
+
+  # THE ANGULAR CLIENT IS ITS OWN NPM PACKAGE AND ITS OWN JOB.
+  # It is not a second folder inside the root package because it cannot be:
+  # Angular 21 pins TypeScript 5.9 while the service is on 7, and it pins
+  # jsdom 28 while the root's vitest resolves jsdom 30. Two lockfiles keep
+  # those three version pairs apart instead of forcing one of them to give.
+  web-ng:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-ng
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22.x', '24.x']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: web-ng/package-lock.json
+      - run: npm ci
+      # ngc, NOT tsc. Plain tsc typechecks the TypeScript and never opens a
+      # template, so it exits 0 on a component bound to the wrong type. That
+      # was verified by breaking one on purpose: tsc passed, ngc failed.
+      - run: npm run typecheck
+      - run: npm test
+      # The client has to BUILD, not just typecheck: the production build is
+      # the only step that runs the full Angular compiler over the templates
+      # with optimization on.
+      - run: npm run build
