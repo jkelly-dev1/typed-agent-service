@@ -121,7 +121,12 @@ variables always win over file values, which is what makes the per-run
 This is a learning project, deliberately small. It has no persistence, no
 authentication, no rate limiting, and one worked toolset; those are seams, not
 oversights. The design mirrors the discipline of my other portfolio repos
-([temporal-multi-agent](https://github.com/jkelly-dev1/temporal-multi-agent),
+([prompt-injection-benchmark](https://github.com/jkelly-dev1/prompt-injection-benchmark),
+[ai-data-boundary-proxy](https://github.com/jkelly-dev1/ai-data-boundary-proxy),
+[llm-eval-gate](https://github.com/jkelly-dev1/llm-eval-gate),
+[least-privilege-agent](https://github.com/jkelly-dev1/least-privilege-agent),
+[citation-abstention-rag](https://github.com/jkelly-dev1/citation-abstention-rag),
+[temporal-multi-agent](https://github.com/jkelly-dev1/temporal-multi-agent),
 [agentic-review-gate](https://github.com/jkelly-dev1/agentic-review-gate)):
 claims backed by tests, mutation checks on the tests that matter, and behavior
 verified over real transports before publishing.
