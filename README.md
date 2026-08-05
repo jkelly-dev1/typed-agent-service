@@ -127,7 +127,8 @@ oversights. The design mirrors the discipline of my other portfolio repos
 [least-privilege-agent](https://github.com/jkelly-dev1/least-privilege-agent),
 [citation-abstention-rag](https://github.com/jkelly-dev1/citation-abstention-rag),
 [temporal-multi-agent](https://github.com/jkelly-dev1/temporal-multi-agent),
-[agentic-review-gate](https://github.com/jkelly-dev1/agentic-review-gate)):
+[agentic-review-gate](https://github.com/jkelly-dev1/agentic-review-gate),
+[federated-retrieval-router](https://github.com/jkelly-dev1/federated-retrieval-router)):
 claims backed by tests, mutation checks on the tests that matter, and behavior
 verified over real transports before publishing.
 
