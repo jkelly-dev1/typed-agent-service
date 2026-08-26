@@ -1,0 +1,4 @@
+{
+  "/v1": { "target": "http://127.0.0.1:3000", "secure": false },
+  "/healthz": { "target": "http://127.0.0.1:3000", "secure": false }
+}

@@ -1,0 +1,44 @@
+:root {
+  --fg: #1a1a1a; --bg: #ffffff; --muted: #5c5c5c; --line: #d8d8d8;
+  --ok: #1f6f43; --bad: #a11212; --accent: #22406e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8e8; --bg: #14161a; --muted: #9aa0a6; --line: #2c3138;
+    --ok: #5fd08a; --bad: #ff8080; --accent: #8fb3ee;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+main { max-width: 46rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+.sub { color: var(--muted); margin: 0 0 1.5rem; }
+label { display: block; font-weight: 600; margin-bottom: .35rem; }
+textarea {
+  width: 100%; padding: .6rem; font: inherit; color: inherit;
+  background: transparent; border: 1px solid var(--line); border-radius: 6px;
+}
+.actions { display: flex; gap: .5rem; align-items: center; margin: .75rem 0 1.5rem; }
+button {
+  font: inherit; padding: .45rem 1rem; border-radius: 6px;
+  border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer;
+}
+button[type='submit'] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .45; cursor: default; }
+.hint { color: var(--muted); font-size: .9rem; }
+.answer { white-space: pre-wrap; border-left: 3px solid var(--accent); padding-left: .8rem; }
+.tools { list-style: none; padding: 0; margin: 1rem 0 0; }
+.tools li {
+  display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap;
+  padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 6px; margin-bottom: .4rem;
+}
+.tool-name { font-weight: 600; }
+.badge { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+.tool-result.ok .badge { color: var(--ok); }
+.tool-result.failed .badge { color: var(--bad); }
+code { font: .875rem ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.error { color: var(--bad); }
+.done { color: var(--muted); font-size: .9rem; }

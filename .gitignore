@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+.env
+KEY_INFO.md
+*.local.md
+npm-debug.log*
