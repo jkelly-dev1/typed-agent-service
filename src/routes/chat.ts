@@ -33,6 +33,31 @@ interface CompletedRun {
   tools: Array<{ name: string; input: unknown; ok: boolean; content: string }>;
 }
 
+/**
+ * A terminal error event becomes a problem+json status, and each of the
+ * service's own controls is reported as what it is: a client that left is 499,
+ * the server time limit is 504, and the iteration cap is 500.
+ *
+ * THE CAP IS NOT 502. 502 states that an upstream server returned something
+ * invalid, and when the cap is reached every provider call has SUCCEEDED --
+ * the service stopped because its own configured budget ran out. Reporting
+ * that as an upstream failure sends whoever is debugging to the wrong system.
+ * 500 says only "this end", which is true, and the body carries the code, the
+ * cap and the count, which is what makes the response actionable.
+ *
+ * 429 is the other candidate and is not used: it is scoped to request RATE and
+ * it invites a retry, and an identical retry reaches the same cap immediately.
+ * If the cap ever becomes a per-request budget the caller can raise, 429
+ * becomes the honest answer and this mapping should change with it.
+ *
+ * A code absent from this table is a provider failure, which IS 502.
+ */
+const STATUS_BY_CODE: Record<string, number> = {
+  aborted: 499,
+  timeout: 504,
+  max_iterations_exceeded: 500,
+};
+
 function parseBody(request: FastifyRequest): z.infer<typeof ChatBodySchema> {
   const parsed = ChatBodySchema.safeParse(request.body);
   if (!parsed.success) throw new ValidationError(parsed.error);
@@ -77,7 +102,7 @@ async function collectRun(events: AsyncGenerator<AgentEvent>): Promise<Completed
       case 'done':
         return { answer: event.answer, iterations: event.iterations, tools };
       case 'error':
-        throw new AppError(event.code, event.message, event.code === 'aborted' ? 499 : 502);
+        throw new AppError(event.code, event.message, STATUS_BY_CODE[event.code] ?? 502);
     }
   }
   throw new AppError('incomplete_run', 'Agent stream ended without a terminal event', 502);
@@ -101,6 +126,7 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatDeps): void {
       maxIterations: config.MAX_TOOL_ITERATIONS,
       maxTokens: config.MAX_TOKENS,
       signal,
+      log: request.log,
     });
   };
 
@@ -131,8 +157,10 @@ export function registerChatRoutes(app: FastifyInstance, deps: ChatDeps): void {
         sseWrite(reply, event);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      sseWrite(reply, { type: 'error', code: 'stream_failed', message });
+      // The cause goes to the log under this request's id; the frame carries
+      // a code and a fixed message, like every other error the client sees.
+      request.log.error({ err }, 'stream failed');
+      sseWrite(reply, { type: 'error', code: 'stream_failed', message: 'The stream failed' });
     } finally {
       reply.raw.end();
     }

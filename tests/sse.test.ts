@@ -45,6 +45,22 @@ describe('POST /v1/chat/stream (SSE)', () => {
     expect(res.headers['content-type']).toContain('application/problem+json');
   });
 
+  it('rejects a body that is not JSON, or is empty, BEFORE the stream starts', async () => {
+    // Neither body reaches the schema validator: Fastify's parser refuses
+    // them first, and that refusal has to be a real 400 as well.
+    app = testApp();
+    const headers = { 'content-type': 'application/json' };
+    for (const [payload, code] of [
+      ['{not json', 'malformed_body'],
+      ['', 'empty_body'],
+    ] as const) {
+      const res = await app.inject({ method: 'POST', url: '/v1/chat/stream', headers, payload });
+      expect(res.statusCode).toBe(400);
+      expect(res.headers['content-type']).toContain('application/problem+json');
+      expect(res.json()).toMatchObject({ status: 400, code });
+    }
+  });
+
   it('delivers in-flight failures as an error frame (status already sent)', async () => {
     app = testApp({ MAX_TOOL_ITERATIONS: '2' });
     const res = await app.inject({

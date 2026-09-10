@@ -35,7 +35,9 @@ export const glossaryTool = defineTool({
   }),
   execute({ term }) {
     const key = term.toLowerCase().trim();
-    const hit = GLOSSARY[key];
+    // Own keys only. `constructor` and `__proto__` are lookups an untrusted
+    // prompt can ask for, and neither is a glossary entry.
+    const hit = Object.hasOwn(GLOSSARY, key) ? GLOSSARY[key] : undefined;
     if (hit) {
       return `${term}: ${hit}`;
     }

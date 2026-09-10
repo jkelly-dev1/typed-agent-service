@@ -16,22 +16,12 @@ const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
  * parser under its own toolchain, and that holds only while the copies stay
  * in step. Nothing else enforces it. Either file can be edited alone and
  * both suites still pass, leaving two clients silently parsing different
- * contracts. This is that enforcement.
+ * contracts. This is that enforcement, and it compares the files byte for
+ * byte: a comment present in one copy and absent from the other is drift too.
  */
-const stripComments = (src: string) =>
-  src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .filter((l) => !l.trim().startsWith('//'))
-    .join('\n')
-    .replace(/\n{2,}/g, '\n')
-    .trim();
-
 describe('the two vendored SSE parsers stay in step', () => {
   it('has identical code in both copies', () => {
-    expect(stripComments(read('web-ng/src/lib/sse.ts'))).toBe(
-      stripComments(read('web/src/lib/sse.ts')),
-    );
+    expect(read('web-ng/src/lib/sse.ts')).toBe(read('web/src/lib/sse.ts'));
   });
 
   it('exercises both copies with the same assertions', () => {

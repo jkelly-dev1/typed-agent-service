@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentEvent } from '../src/agent/loop.js';
 import { runAgent } from '../src/agent/loop.js';
 import { MockProvider } from '../src/providers/mock.js';
+import type { Provider } from '../src/providers/types.js';
 import { buildRegistry } from '../src/server.js';
 
 async function collect(userMessage: string, maxIterations = 5): Promise<AgentEvent[]> {
@@ -64,11 +65,21 @@ describe('agent loop', () => {
   });
 
   it('aborts cleanly when the signal fires', async () => {
+    // The loop's own check, not the provider's: an already-aborted signal
+    // ends the run before the provider is called at all, with the abort code.
     const controller = new AbortController();
     controller.abort();
+    let providerCalls = 0;
+    const counting: Provider = {
+      name: 'counting',
+      stream(request, signal) {
+        providerCalls++;
+        return new MockProvider().stream(request, signal);
+      },
+    };
     const events: AgentEvent[] = [];
     const run = runAgent({
-      provider: new MockProvider(),
+      provider: counting,
       registry: buildRegistry(),
       system: 'test',
       userMessage: 'calc: 1+1',
@@ -77,6 +88,35 @@ describe('agent loop', () => {
       signal: controller.signal,
     });
     for await (const event of run) events.push(event);
-    expect(events.at(-1)).toMatchObject({ type: 'error' });
+    expect(events).toEqual([{ type: 'error', code: 'aborted', message: 'Request aborted by client' }]);
+    expect(providerCalls).toBe(0);
+  });
+
+  it('reports a provider failure as a code and sends the cause to the log', async () => {
+    const logged: Array<{ err: unknown; msg: string }> = [];
+    const failing: Provider = {
+      name: 'failing',
+      // eslint-disable-next-line require-yield
+      async *stream() {
+        throw new Error('upstream rejected key sk-secret-1234');
+      },
+    };
+    const events: AgentEvent[] = [];
+    const run = runAgent({
+      provider: failing,
+      registry: buildRegistry(),
+      system: 'test',
+      userMessage: 'hi',
+      maxIterations: 5,
+      maxTokens: 256,
+      signal: new AbortController().signal,
+      log: { error: (obj, msg) => logged.push({ err: (obj as { err: unknown }).err, msg }) },
+    });
+    for await (const event of run) events.push(event);
+    expect(events).toEqual([
+      { type: 'error', code: 'provider_error', message: 'The model provider failed' },
+    ]);
+    expect(logged).toHaveLength(1);
+    expect((logged[0]?.err as Error).message).toContain('sk-secret-1234');
   });
 });

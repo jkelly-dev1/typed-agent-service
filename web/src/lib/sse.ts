@@ -10,6 +10,12 @@
  *
  * EventSource would handle this, and it cannot be used here: it only issues
  * GET requests and this endpoint is a POST. So the framing is ours to do.
+ *
+ * This module is vendored into both clients, web/ and web-ng/, rather than
+ * shared between them: the two are separate npm packages on separate
+ * TypeScript and Vite versions, and each compiles and tests the parser under
+ * its own toolchain. The copies are byte-identical, tests/sse-parity.test.ts
+ * fails when they differ, and an edit to one is an edit to both.
  */
 
 export type AgentEvent =

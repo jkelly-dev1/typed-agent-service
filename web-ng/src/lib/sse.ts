@@ -11,15 +11,11 @@
  * EventSource would handle this, and it cannot be used here: it only issues
  * GET requests and this endpoint is a POST. So the framing is ours to do.
  *
- * This file is a vendored copy of the React client's parser, not an import
- * from it. The two clients are separate npm packages on separate TypeScript
- * and Vite versions, and vendoring keeps each one compiling and testing the
- * parser under its own toolchain without a shared module between them.
- *
- * It is a copy, not a second implementation, and the difference matters: two
- * identical copies cannot cross-check each other's reading of the event
- * contract, because they would misread it the same way. Keep them identical.
- * Tests/sse-parity.test.ts fails if they drift.
+ * This module is vendored into both clients, web/ and web-ng/, rather than
+ * shared between them: the two are separate npm packages on separate
+ * TypeScript and Vite versions, and each compiles and tests the parser under
+ * its own toolchain. The copies are byte-identical, tests/sse-parity.test.ts
+ * fails when they differ, and an edit to one is an edit to both.
  */
 
 export type AgentEvent =

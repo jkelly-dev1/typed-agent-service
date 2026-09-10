@@ -12,6 +12,11 @@ export type AgentEvent =
   | { type: 'done'; answer: string; iterations: number; toolCalls: number }
   | { type: 'error'; code: string; message: string };
 
+/** Where the cause of a provider failure goes. The client only ever gets a code. */
+export interface AgentLogger {
+  error(obj: object, msg: string): void;
+}
+
 export interface AgentLoopOptions {
   provider: Provider;
   registry: ToolRegistry;
@@ -20,6 +25,15 @@ export interface AgentLoopOptions {
   maxIterations: number;
   maxTokens: number;
   signal: AbortSignal;
+  log?: AgentLogger;
+}
+
+/** The two ways a run is cancelled, told apart by the signal's reason. */
+function cancelled(signal: AbortSignal): AgentEvent {
+  const reason = signal.reason as { name?: unknown } | undefined;
+  return reason?.name === 'TimeoutError'
+    ? { type: 'error', code: 'timeout', message: 'Run exceeded the server time limit' }
+    : { type: 'error', code: 'aborted', message: 'Request aborted by client' };
 }
 
 /**
@@ -37,8 +51,14 @@ export async function* runAgent(opts: AgentLoopOptions): AsyncGenerator<AgentEve
   let toolCalls = 0;
 
   for (let iteration = 1; iteration <= opts.maxIterations; iteration++) {
+    // Yield to the event loop once per iteration. Cancellation arrives as a
+    // timer or a socket event, and a run whose provider and tools settle in
+    // microtasks alone would never let either be delivered. This is what
+    // makes the check below able to see them, and what keeps a long run
+    // from starving every other request on the process.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     if (opts.signal.aborted) {
-      yield { type: 'error', code: 'aborted', message: 'Request aborted by client' };
+      yield cancelled(opts.signal);
       return;
     }
 
@@ -69,8 +89,16 @@ export async function* runAgent(opts: AgentLoopOptions): AsyncGenerator<AgentEve
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      yield { type: 'error', code: 'provider_error', message };
+      // A provider that throws after the signal fired is reporting the
+      // cancellation, not a failure of its own.
+      if (opts.signal.aborted) {
+        yield cancelled(opts.signal);
+        return;
+      }
+      // The provider's own failure text is for the log, where it is
+      // correlated by request id. The client gets a code and a fixed message.
+      opts.log?.error({ err }, 'provider failed');
+      yield { type: 'error', code: 'provider_error', message: 'The model provider failed' };
       return;
     }
 
@@ -101,6 +129,8 @@ export async function* runAgent(opts: AgentLoopOptions): AsyncGenerator<AgentEve
   yield {
     type: 'error',
     code: 'max_iterations_exceeded',
-    message: `Agent did not finish within ${opts.maxIterations} iterations`,
+    message:
+      `Agent did not finish within its configured cap of ` +
+      `${opts.maxIterations} tool iterations; every provider call succeeded`,
   };
 }

@@ -9,11 +9,19 @@ import type { AgentEvent } from '../lib/sse';
 function streamingFetch(events: AgentEvent[], ok = true, status = 200): typeof fetch {
   return (async () => {
     if (!ok) {
+      // What the service sends: a problem+json document, WITH a body. A stub
+      // with no body would let a client pass on `!response.body` alone.
+      const problem = JSON.stringify({ title: 'Bad Request', status, detail: 'message: too short' });
       return {
         ok: false,
         status,
-        body: null,
-        json: async () => ({ title: 'Bad Request', detail: 'message: too short' }),
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(problem));
+            controller.close();
+          },
+        }),
+        json: async () => JSON.parse(problem) as unknown,
       } as unknown as Response;
     }
     const encoder = new TextEncoder();

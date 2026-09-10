@@ -21,6 +21,38 @@ export interface BuildAppOptions {
   provider?: Provider;
 }
 
+const REQUEST_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+/**
+ * The request path, reduced to something safe to put in a response body.
+ *
+ * A 404 detail that interpolates the raw path returns whatever the caller
+ * sent, so a path carrying markup arrives in the response body verbatim.
+ * Behind a proxy that sends `nosniff` and a `default-src 'none'` CSP that is
+ * inert, but this service is documented as runnable on its own, and on its own
+ * it sends no security headers at all -- so the body is the only thing between
+ * the caller and their own renderer.
+ *
+ * The path is capped and everything outside an unreserved-character set is
+ * PERCENT-ENCODED rather than deleted. Encoding keeps two different paths
+ * distinguishable; deleting the offending characters would silently map
+ * `/a<b>c` and `/abc` onto one string, and a 404 that cannot tell you which
+ * route was missing is not worth printing.
+ */
+const MAX_PATH_IN_PROBLEM = 80;
+
+export function safePathForProblem(url: string): string {
+  const path = url.split('?')[0] ?? '';
+  const capped = path.slice(0, MAX_PATH_IN_PROBLEM);
+  const encoded = capped.replace(
+    /[^A-Za-z0-9/._~-]/g,
+    (character) =>
+      '%' +
+      character.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'),
+  );
+  return path.length > MAX_PATH_IN_PROBLEM ? `${encoded}%E2%80%A6` : encoded;
+}
+
 export function buildApp(opts: BuildAppOptions): FastifyInstance {
   const { config } = opts;
   const provider = opts.provider ?? getProvider(config);
@@ -32,15 +64,26 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
       // Secrets never reach the logs, even at trace level.
       redact: ['req.headers.authorization', 'req.headers["x-api-key"]'],
     },
-    genReqId: (req) => (req.headers['x-request-id'] as string | undefined) ?? randomUUID(),
-    requestIdHeader: 'x-request-id',
+    // A client may supply the correlation id, but only a bounded token is
+    // accepted: the id is echoed in every problem body and stamped on every
+    // log line for the request, so an unbounded one is a log-injection path.
+    genReqId: (req) => {
+      const supplied = req.headers['x-request-id'];
+      return typeof supplied === 'string' && REQUEST_ID.test(supplied) ? supplied : randomUUID();
+    },
+    requestIdHeader: false,
   });
 
   // Typed error boundary: every thrown error becomes problem+json exactly once.
+  // Only an unexpected error is logged with its stack: a run that the
+  // service's own controls ended, or a request the client got wrong, is an
+  // outcome with a code, not a fault to trace.
   app.setErrorHandler((err, request, reply) => {
     const problem = toProblem(err, request.id);
-    if (problem.status >= 500) {
+    if (problem.code === 'internal_error') {
       request.log.error({ err }, 'request failed');
+    } else if (problem.status >= 500) {
+      request.log.warn({ code: problem.code }, 'run failed');
     } else {
       request.log.info({ code: problem.code }, 'request rejected');
     }
@@ -58,7 +101,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         type: 'about:blank',
         title: 'Not Found',
         status: 404,
-        detail: `No route for ${request.method} ${request.url}`,
+        detail: `No route for ${request.method} ${safePathForProblem(request.url)}`,
         code: 'not_found',
         requestId: request.id,
       });

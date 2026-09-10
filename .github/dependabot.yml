@@ -11,6 +11,19 @@ updates:
           - "minor"
           - "patch"
 
+  # The Angular client is its own npm package with its own lockfile, so it
+  # needs its own entry: a directory here covers one lockfile, not a tree.
+  - package-ecosystem: "npm"
+    directory: "/web-ng"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

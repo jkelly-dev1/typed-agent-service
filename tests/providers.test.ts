@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig, resolveProviderName } from '../src/config.js';
 import { getProvider } from '../src/providers/index.js';
+import { MockProvider } from '../src/providers/mock.js';
 import { parseToolArguments, toOpenAiMessages, toOpenAiTools } from '../src/providers/openai.js';
-import type { ChatMessage } from '../src/providers/types.js';
+import type { ChatMessage, ProviderEvent, ToolSpec } from '../src/providers/types.js';
+import { buildRegistry } from '../src/server.js';
 
 describe('provider resolution', () => {
   it('defaults to mock with no configuration', () => {
@@ -134,5 +136,28 @@ describe('OpenAI wire conversion', () => {
     expect(parseToolArguments('{"expression":"1+1"}')).toEqual({ expression: '1+1' });
     expect(parseToolArguments('')).toEqual({});
     expect(parseToolArguments('{broken')).toBe('{broken'); // registry will reject with invalid_input
+  });
+});
+
+describe('the mock provider', () => {
+  it('calls only tools it was offered', async () => {
+    // A real model cannot call a tool that is not in the request. The mock
+    // behaves the same way, so a loop that stops sending its tools is visible.
+    const provider = new MockProvider();
+    const signal = new AbortController().signal;
+    const messages: ChatMessage[] = [{ role: 'user', blocks: [{ kind: 'text', text: 'calc: 1+1' }] }];
+    const collect = async (tools: ToolSpec[]) => {
+      const events: ProviderEvent[] = [];
+      for await (const e of provider.stream({ system: 'test', messages, tools, maxTokens: 64 }, signal)) {
+        events.push(e);
+      }
+      return events;
+    };
+    const offered = await collect(buildRegistry().specs());
+    expect(offered.some((e) => e.type === 'tool_use')).toBe(true);
+
+    const withheld = await collect([]);
+    expect(withheld.some((e) => e.type === 'tool_use')).toBe(false);
+    expect(withheld.at(-1)).toEqual({ type: 'stop', reason: 'end_turn' });
   });
 });

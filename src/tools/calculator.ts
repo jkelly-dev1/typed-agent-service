@@ -8,9 +8,11 @@ import { defineTool } from './registry.js';
  *
  *   expr   := term (('+' | '-') term)*
  *   term   := factor (('*' | '/' | '%') factor)*
- *   factor := unary ('^' factor)?          right-associative power
- *   unary  := '-' unary | primary
+ *   factor := '-' factor | primary ('^' factor)?
  *   primary:= NUMBER | '(' expr ')'
+ *
+ * Power is right-associative, and unary minus binds looser than it, as in
+ * mathematical notation: -2 ^ 2 is -(2 ^ 2) = -4, and (-2) ^ 2 is 4.
  */
 class Parser {
   private pos = 0;
@@ -64,20 +66,16 @@ class Parser {
   }
 
   private factor(): number {
-    const base = this.unary();
+    if (this.peek() === '-') {
+      this.pos++;
+      return -this.factor();
+    }
+    const base = this.primary();
     if (this.peek() === '^') {
       this.pos++;
       return base ** this.factor();
     }
     return base;
-  }
-
-  private unary(): number {
-    if (this.peek() === '-') {
-      this.pos++;
-      return -this.unary();
-    }
-    return this.primary();
   }
 
   private primary(): number {

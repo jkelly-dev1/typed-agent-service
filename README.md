@@ -40,10 +40,17 @@ variables.
 | The iteration cap terminates a model that never stops | `tests/agent-loop.test.ts` "enforces the iteration cap" (mutation-checked: remove the cap and the test fails) |
 | A bad tool call becomes an error result the model sees | `tests/agent-loop.test.ts` "feeds schema-invalid tool input back" |
 | SSE frames reassemble losslessly into the final answer | `tests/sse.test.ts` "streams the run as typed event frames" |
-| Invalid bodies get a real 400 before the stream starts | `tests/sse.test.ts` "rejects invalid bodies BEFORE the stream starts" |
+| Invalid bodies get a real 400 before the stream starts | `tests/sse.test.ts` "rejects invalid bodies BEFORE the stream starts" and "rejects a body that is not JSON, or is empty, BEFORE the stream starts" |
 | In-flight stream failures arrive as an error frame | `tests/sse.test.ts` "delivers in-flight failures" |
 | Validation errors return problem+json with field issues | `tests/routes.test.ts` "rejects an invalid body" |
 | Unexpected errors never leak internals | `tests/routes.test.ts` "never leaks internals" |
+| A body that is not JSON, is empty, or is oversized is the client's error, not a 500 | `tests/routes.test.ts` "rejects a body that is not JSON, an empty body, and an oversized body" (mutation-checked: stop honoring Fastify's own 4xx and it fails) |
+| A provider's own error text never reaches the client; the cause goes to the log | `tests/routes.test.ts` "never delivers the provider's own error text", `tests/agent-loop.test.ts` "reports a provider failure as a code" (mutation-checked: pass the message through and both fail) |
+| The loop hands the provider its tools and the request's system prompt | `tests/routes.test.ts` "hands the provider the registered tools" (mutation-checked: send `tools: []` and it fails, along with every test that expects a tool call) |
+| Cancellation reaches the provider, on client disconnect and on the server time limit | `tests/real-http.test.ts` "cancels the run at the provider when the client disconnects", "... when the server time limit passes" (mutation-checked: never arm either signal and the matching test fails) |
+| A client-supplied request id is bounded before it is echoed or logged | `tests/routes.test.ts` "echoes a well-formed x-request-id and replaces one that is not" |
+| The glossary never answers from the object prototype | `tests/tools.test.ts` "glossary does not answer from the object prototype" |
+| Unary minus binds looser than power: `-2 ^ 2` is -4 | `tests/tools.test.ts` "gives unary minus lower precedence than power" |
 | Runs complete over a real socket, not just inject | `tests/real-http.test.ts` (regression: a request-close listener aborted every real-HTTP run while inject tests passed) |
 | Provider selection needs BOTH name and credential; keys never cross-match | `tests/providers.test.ts` "provider resolution" |
 | The conversation model maps correctly to OpenAI roles | `tests/providers.test.ts` "OpenAI wire conversion" |
@@ -121,7 +128,8 @@ The SSE parser is vendored into each client rather than shared, and the two
 copies are CHARACTER-IDENTICAL. Sharing a module across two npm packages on
 different TypeScript and Vite versions is the thing being avoided; each client
 compiles and tests the parser under its own toolchain, and
-`tests/sse-parity.test.ts` fails if the copies ever drift apart.
+`tests/sse-parity.test.ts` compares the two files byte for byte, comments
+included, so it fails if the copies ever drift apart.
 
 Be precise about what that buys, because it is not independent verification. A
 copy cannot notice a contract change the original missed; both copies would miss
@@ -139,11 +147,12 @@ the React client untypechecked entirely while every check still passes.
 
 ## Quickstart
 
-Requires Node 20.12 or newer. CI runs on the maintained LTS lines, 22 and 24.
+Requires Node 22 or newer, the floor the test toolchain declares. CI runs on
+the maintained LTS lines, 22 and 24.
 
 ```
 npm ci
-npm test          # 55 tests, fully offline (42 service, 13 React client)
+npm test          # 69 tests, fully offline (56 service, 13 React client)
 npm run demo      # end-to-end over real HTTP with the mock provider
 npm run dev       # start on http://127.0.0.1:3000
 ```
@@ -170,11 +179,15 @@ curl -N -X POST localhost:3000/v1/chat/stream \
   events: `token`, `tool_call`, `tool_result`, then exactly one terminal
   `done` or `error` frame. One asymmetry is deliberate: after the stream
   starts the HTTP status is already sent, so in-flight failures arrive as an
-  `error` frame, while invalid request bodies are rejected with a real 400
-  before any frame is written.
+  `error` frame, while invalid request bodies, including a body that is not
+  JSON at all, are rejected with a real 400 before any frame is written.
 - `GET /healthz` reports the active provider and registered tools.
 - Every error response is `application/problem+json` with a stable `code` and
-  the request id for correlation with the structured logs.
+  the request id for correlation with the structured logs. The service's own
+  outcomes are reported as what they are: a client that disconnected is 499,
+  the server time limit is 504 `timeout`, and a provider failure is 502
+  `provider_error` with a fixed message, its cause logged under the request
+  id rather than sent to the client.
 
 ## Real models
 
@@ -200,13 +213,18 @@ variables always win over file values, which is what makes the per-run
 - The mock provider scripts realistic behavior (tool calls, multi-turn
   results, a run that never terminates, a schema-invalid call) so the loop's
   guardrails are exercised deterministically. The non-terminating script
-  exists purely to prove the iteration cap works.
+  exists purely to prove the iteration cap works. Like a real model, the mock
+  can only call a tool it was offered, so a loop that stops sending its tools
+  stops getting tool calls back and the suite notices.
 - Tool inputs cross two boundaries and are validated at both: the HTTP body by
   the route schema, the model's tool arguments by the tool schema.
 - Cancellation is one `AbortSignal` combining client disconnect and a server
   timeout; disconnect is detected on the response side (`close` before the
   response finished writing), which the regression test in
-  `tests/real-http.test.ts` exists to protect.
+  `tests/real-http.test.ts` exists to protect. The same file asserts at the
+  provider, over a real socket, that both a disconnect and the time limit
+  cancel the run. The loop yields to the event loop once per iteration so
+  those signals, which arrive as socket and timer events, can be observed.
 
 ## Scope
 

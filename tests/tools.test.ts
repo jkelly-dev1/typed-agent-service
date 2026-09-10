@@ -15,6 +15,13 @@ describe('calculator parser', () => {
     expect(evaluate('10 % 4')).toBe(2);
   });
 
+  it('gives unary minus lower precedence than power', () => {
+    expect(evaluate('-2 ^ 2')).toBe(-4);
+    expect(evaluate('(-2) ^ 2')).toBe(4);
+    expect(evaluate('2 ^ -1')).toBe(0.5);
+    expect(evaluate('2 * -3')).toBe(-6);
+  });
+
   it('rejects malformed input instead of guessing', () => {
     expect(() => evaluate('2 +')).toThrow();
     expect(() => evaluate('(2 + 3')).toThrow(/parenthesis/);
@@ -82,5 +89,14 @@ describe('tool registry (Zod boundary)', () => {
     const miss = await registry.run('glossary_lookup', { term: 'flux capacitor' });
     expect(miss.ok).toBe(true);
     if (miss.ok) expect(miss.result).toMatch(/^NOT FOUND/);
+  });
+
+  it('glossary does not answer from the object prototype', async () => {
+    // Keys every plain object inherits are terms a prompt can ask for.
+    for (const term of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+      const run = await registry.run('glossary_lookup', { term });
+      expect(run.ok).toBe(true);
+      if (run.ok) expect(run.result).toMatch(/^NOT FOUND/);
+    }
   });
 });
