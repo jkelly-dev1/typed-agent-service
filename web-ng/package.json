@@ -26,7 +26,7 @@
     "@angular/compiler-cli": "^21.2.21",
     "jsdom": "^28.1.0",
     "typescript": "~5.9.3",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   },
   "engines": {
     "node": ">=20.19"
