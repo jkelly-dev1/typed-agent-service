@@ -82,7 +82,7 @@ export class MockProvider implements Provider {
     }
 
     if (/bad tool call/i.test(firstText)) {
-      // Schema-invalid on purpose: `expression` must be a string.
+      // Schema-invalid by construction: `expression` must be a string.
       yield* this.callTool(offered, 'mock-bad-1', 'calculator', { expression: 42 });
       return;
     }

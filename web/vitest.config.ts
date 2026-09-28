@@ -1,9 +1,9 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
-// Separate from the server config on purpose. The service's tests run in a
-// node environment; these need a DOM. Two configs is clearer than one config
-// that switches environment on a path glob.
+// Separate from the server config. The service's tests run in a node
+// environment; these need a DOM. Two configs is clearer than one config that
+// switches environment on a path glob.
 export default defineConfig({
   plugins: [react()],
   test: {

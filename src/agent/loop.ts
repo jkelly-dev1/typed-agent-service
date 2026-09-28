@@ -28,7 +28,7 @@ export interface AgentLoopOptions {
   log?: AgentLogger;
 }
 
-/** The two ways a run is cancelled, told apart by the signal's reason. */
+/** The two ways a run is canceled, told apart by the signal's reason. */
 function cancelled(signal: AbortSignal): AgentEvent {
   const reason = signal.reason as { name?: unknown } | undefined;
   return reason?.name === 'TimeoutError'
@@ -99,6 +99,18 @@ export async function* runAgent(opts: AgentLoopOptions): AsyncGenerator<AgentEve
       // correlated by request id. The client gets a code and a fixed message.
       opts.log?.error({ err }, 'provider failed');
       yield { type: 'error', code: 'provider_error', message: 'The model provider failed' };
+      return;
+    }
+
+    // A turn cut off at the output limit is incomplete: its text stops
+    // mid-answer and any tool call in it may be partial. Reporting it as done
+    // would return the fragment as the answer.
+    if (stopReason === 'max_tokens') {
+      yield {
+        type: 'error',
+        code: 'truncated',
+        message: 'The model reached its output token limit before finishing',
+      };
       return;
     }
 

@@ -12,8 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Maintained LTS lines as of 2026-07: 22 = Maintenance LTS, 24 = Active LTS.
-        node-version: ['22.x', '24.x']
+        # 20.x is the floor package.json declares (>=20.19), run here so the
+        # declaration stays tested. 22 and 24 are the maintained LTS lines.
+        node-version: ['20.x', '22.x', '24.x']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -38,9 +39,9 @@ jobs:
 
   # The Angular client is its own NPM package and its own job.
   # It is not a second folder inside the root package because it cannot be:
-  # Angular 21 pins TypeScript 5.9 while the service is on 7, and it pins
-  # jsdom 28 while the root's vitest resolves jsdom 30. Two lockfiles keep
-  # those three version pairs apart instead of forcing one of them to give.
+  # Angular 21 pins TypeScript 5.9 while the service is on 7, and Vite 7
+  # while the React client is on 8. Two lockfiles keep those version pairs
+  # apart instead of forcing one of them to give.
   web-ng:
     runs-on: ubuntu-latest
     defaults:
@@ -49,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ['22.x', '24.x']
+        node-version: ['20.x', '22.x', '24.x']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -60,7 +61,7 @@ jobs:
       - run: npm ci
       # ngc, NOT tsc. Plain tsc typechecks the TypeScript and never opens a
       # template, so it exits 0 on a component bound to the wrong type. That
-      # was verified by breaking one on purpose: tsc passed, ngc failed.
+      # was verified by breaking one: tsc passed, ngc failed.
       - run: npm run typecheck
       - run: npm test
       # The client has to BUILD, not just typecheck: the production build is

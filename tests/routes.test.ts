@@ -24,11 +24,13 @@ describe('POST /v1/chat', () => {
       provider: string;
       answer: string;
       iterations: number;
-      toolCalls: Array<{ name: string; ok: boolean; content: string }>;
+      toolCalls: Array<{ name: string; input: unknown; ok: boolean; content: string }>;
     };
     expect(body.provider).toBe('mock');
     expect(body.toolCalls).toHaveLength(1);
     expect(body.toolCalls[0]).toMatchObject({ name: 'unit_convert', ok: true });
+    // The input the model supplied, reported as it was sent.
+    expect(body.toolCalls[0]?.input).toEqual({ value: 10, from: 'km', to: 'mi' });
     expect(body.answer).toContain('6.21371');
   });
 
@@ -96,7 +98,7 @@ describe('POST /v1/chat', () => {
       expect(res.statusCode).toBe(404);
       const detail = (res.json() as { detail: string }).detail;
 
-      // WHAT MUST BE ABSENT, which is the whole assertion. Checking only that
+      // What must be absent, which is the whole assertion. Checking only that
       // some marker is PRESENT would pass on a body that still carried the
       // markup beside it. The letters "script" are inert once the angle
       // brackets and quotes are gone, so they are not asserted on; the
@@ -126,6 +128,37 @@ describe('POST /v1/chat', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/does-not-exist' });
     const detail = (res.json() as { detail: string }).detail;
     expect(detail).toContain('/v1/does-not-exist');
+  });
+
+  it('answers a path Fastify cannot decode with problem+json, markup encoded and capped', async () => {
+    // A malformed percent-escape never reaches the not-found handler: Fastify
+    // rejects the URL first, and its default body echoed the raw path.
+    app = testApp();
+    for (const path of ['/<script>alert(1)</script>%zz', '/"\'()&=%zz', `/${'a'.repeat(3000)}%zz`]) {
+      const res = await app.inject({ method: 'GET', url: path });
+      expect(res.statusCode).toBe(400);
+      expect(res.headers['content-type']).toContain('application/problem+json');
+      const problem = res.json() as { code: string; detail: string; requestId: string };
+      expect(problem.code).toBe('bad_url');
+      expect(problem.requestId).toBeTruthy();
+      for (const raw of ['<', '>', '"', "'"]) expect(problem.detail).not.toContain(raw);
+      expect(res.body.length).toBeLessThan(400);
+    }
+  });
+
+  it('answers an over-long path parameter as 414 problem+json, not as a malformed path', async () => {
+    // The service registers no parametric route, so this branch is reached
+    // through one added here. Fastify sends a parameter over maxParamLength
+    // (100) to the same hook as a URL it cannot decode.
+    app = testApp();
+    app.get('/items/:id', () => ({ ok: true }));
+    const res = await app.inject({ method: 'GET', url: `/items/${'a'.repeat(101)}` });
+    expect(res.statusCode).toBe(414);
+    expect(res.headers['content-type']).toContain('application/problem+json');
+    const problem = res.json() as { code: string; detail: string; requestId: string };
+    expect(problem.code).toBe('param_too_long');
+    expect(problem.requestId).toBeTruthy();
+    expect(problem.detail).not.toContain('Malformed');
   });
 
   it('hands the provider the registered tools and the request\'s system prompt', async () => {
@@ -170,7 +203,7 @@ describe('POST /v1/chat', () => {
   });
 
   it('reports the iteration cap as the service\'s own limit, not an upstream failure', async () => {
-    // 502 claims an upstream server returned something invalid. Every provider
+    // A 502 claims an upstream server returned something invalid. Every provider
     // call here SUCCEEDED and the service stopped at its own configured cap, so
     // 502 would state something untrue to whoever is reading the log. The
     // status says only "this end"; the body carries what actually happened.
@@ -183,8 +216,29 @@ describe('POST /v1/chat', () => {
     expect(res.statusCode).toBe(500);
     const body = res.json() as { code: string; detail: string };
     expect(body.code).toBe('max_iterations_exceeded');
-    // The cap and the count are what make the response actionable.
+    // The cap and the count are what the caller needs to act on.
     expect(body.detail).toMatch(/\b2\b/);
+  });
+
+  it('answers a run cut off at the output token limit as 500 truncated, on either route', async () => {
+    // The limit is this service's own setting, so the incomplete run is a
+    // 500 and not a 502 provider failure.
+    const cut: Provider = {
+      name: 'cut',
+      async *stream() {
+        yield { type: 'text', text: 'The answer is' };
+        yield { type: 'stop', reason: 'max_tokens' };
+      },
+    };
+    app = testApp({}, cut);
+    const res = await app.inject({ method: 'POST', url: '/v1/chat', payload: { message: 'hi' } });
+    expect(res.statusCode).toBe(500);
+    expect(res.headers['content-type']).toContain('application/problem+json');
+    expect(res.json()).toMatchObject({ status: 500, code: 'truncated' });
+
+    const sse = await app.inject({ method: 'POST', url: '/v1/chat/stream', payload: { message: 'hi' } });
+    expect(sse.statusCode).toBe(200);
+    expect(parseSse(sse.payload).at(-1)).toMatchObject({ event: 'error', data: { code: 'truncated' } });
   });
 });
 

@@ -69,6 +69,16 @@ variables.
 | The Angular client marks a failed tool result as failed | `web-ng/src/app/app.spec.ts` "marks a failed tool result as failed rather than hiding it" (mutation-checked: render every result as ok and it fails) |
 | The Angular client surfaces an in-flight error FRAME | `web-ng/src/app/app.spec.ts` "renders an in-flight failure that arrived as an error FRAME" |
 | The Angular client surfaces a pre-stream rejection as a status | `web-ng/src/app/app.spec.ts` "reports a rejected request, which arrives as a real status and not a frame" (mutation-checked: skip the not-ok branch and it fails) |
+| A URL Fastify cannot decode is answered as problem+json, with the path encoded and capped | `tests/routes.test.ts` "answers a path Fastify cannot decode with problem+json, markup encoded and capped" |
+| A request that is not HTTP is answered as problem+json, and a log line carries its request id | `tests/real-http.test.ts` "answers a request that is not HTTP with problem+json" (mutation-checked: drop the log call and it fails) |
+| Request headers over the size limit are answered as 431 problem+json | `tests/real-http.test.ts` "answers request headers over the size limit as 431 problem+json" (mutation-checked: stop recognizing header overflow and it fails) |
+| An over-long path parameter is 414 problem+json, not a malformed path | `tests/routes.test.ts` "answers an over-long path parameter as 414 problem+json, not as a malformed path" (mutation-checked: stop recognizing the parameter error and it fails) |
+| The reported tool-call input is the input the model supplied, on both routes | `tests/routes.test.ts` "returns the full run as JSON", `tests/sse.test.ts` "streams the run as typed event frames ending in done" |
+| A run the model cut off at its token limit is `truncated`, not `done` | `tests/agent-loop.test.ts` "reports a run the model cut off at its token limit as truncated, not done" |
+| That run is a 500 `truncated` on the JSON route and a `truncated` error frame on the stream | `tests/routes.test.ts` "answers a run cut off at the output token limit as 500 truncated, on either route" (mutation-checked: drop the status mapping and it fails) |
+| A failure writing a frame sends a fixed message, not the error text | `tests/sse.test.ts` "sends a fixed message, not the error text, when writing a frame fails" |
+| `unit_convert` refuses a temperature below absolute zero | `tests/tools.test.ts` "refuses a temperature below absolute zero instead of converting it" |
+| Both clients report a stream that ended with no `done` or `error` frame | `web/tests/chat.test.ts` and `web-ng/src/lib/chat.spec.ts` "reports a stream that ended without done or error as incomplete" |
 
 ## The web clients
 
@@ -80,7 +90,7 @@ component library.
 
 A single page in `web/`, React and TypeScript, no router and no state library.
 It exists to make the event contract visible: tokens stream into the answer,
-and every tool call is listed with the input it was validated against and the
+and every tool call is listed with the input the model supplied and the
 result it returned, because "which tools ran and what came back" is the
 question this service exists to answer and a chat bubble hides it.
 
@@ -108,21 +118,21 @@ inside an async read loop.
 ```
 cd web-ng && npm ci
 npm start          # ng serve on :4200, proxying /v1 to :3000
-npm test           # 13 tests
+npm test           # 15 tests
 ```
 
 Open http://localhost:4200 and not `http://127.0.0.1:4200`. The dev server binds
 IPv6 loopback only, so the dotted-quad address is refused. The React client's
 dev server does the same thing on :5173.
 
-It is a separate npm package, with its own LOCKFILE, and it had to be. Three
-version pairs disagree and none of them can be talked out of it: Angular 21 pins
-TypeScript 5.9 while the service is on 7, it pins Vite 7 while the React client
-is on 8, and it pins jsdom 28 while the root's vitest resolves jsdom 30. That
-last one is not cosmetic. Jsdom 30 pulls a version of undici that will not load
-on this machine's Node, so the React client tests run on happy-dom. Angular's
-own pin runs fine. Two lockfiles cost one extra `npm ci` in CI and settle all
-three.
+It is a separate npm package, with its own LOCKFILE, and it had to be. Two
+version pairs disagree and neither can be talked out of it: Angular 21 pins
+TypeScript 5.9 while the service is on 7, and it pins Vite 7 while the React
+client is on 8. It also pins jsdom 28, and the root has no jsdom at all: the
+jsdom 30 its vitest would have resolved pulls a version of undici that will not
+load on this machine's Node, so the React client tests run on happy-dom.
+Angular's own pin runs fine. Two lockfiles cost one extra `npm ci` in CI and
+settle both.
 
 The SSE parser is vendored into each client rather than shared, and the two
 copies are CHARACTER-IDENTICAL. Sharing a module across two npm packages on
@@ -135,7 +145,10 @@ Be precise about what that buys, because it is not independent verification. A
 copy cannot notice a contract change the original missed; both copies would miss
 it identically. What the duplication demonstrates is that the parser compiles
 and passes under two toolchains, which is a real claim and a smaller one. Both
-copies are tested and both were mutation-checked.
+copies are tested and both are mutation-checked. In each of
+`web/tests/sse.test.ts` and `web-ng/src/lib/sse.spec.ts`
+"holds a frame split across two chunks until the rest arrives" fails when that
+copy stops retaining its buffer.
 
 `npm run typecheck` HERE RUNS `ngc`, NOT `tsc`, and the difference is not
 pedantic. Plain `tsc` typechecks the TypeScript and never opens a template, so
@@ -147,12 +160,12 @@ the React client untypechecked entirely while every check still passes.
 
 ## Quickstart
 
-Requires Node 22 or newer, the floor the test toolchain declares. CI runs on
-the maintained LTS lines, 22 and 24.
+`package.json` declares Node 20.19 or newer, the floor the test toolchain
+declares. CI runs every suite, both clients included, on Node 20, 22 and 24.
 
 ```
 npm ci
-npm test          # 69 tests, fully offline (56 service, 13 React client)
+npm test          # 79 tests, fully offline (64 service, 15 React client)
 npm run demo      # end-to-end over real HTTP with the mock provider
 npm run dev       # start on http://127.0.0.1:3000
 ```
@@ -174,7 +187,9 @@ curl -N -X POST localhost:3000/v1/chat/stream \
 ## API
 
 - `POST /v1/chat` runs the agent and returns the whole run as JSON: answer,
-  iteration count, and every tool call with its validated input and result.
+  iteration count, and every tool call with the input the model supplied,
+  whether the tool accepted it, and its result. The input is reported as sent;
+  the executor receives only the validated form.
 - `POST /v1/chat/stream` returns `text/event-stream`. Frames are typed agent
   events: `token`, `tool_call`, `tool_result`, then exactly one terminal
   `done` or `error` frame. One asymmetry is deliberate: after the stream
@@ -183,9 +198,10 @@ curl -N -X POST localhost:3000/v1/chat/stream \
   JSON at all, are rejected with a real 400 before any frame is written.
 - `GET /healthz` reports the active provider and registered tools.
 - Every error response is `application/problem+json` with a stable `code` and
-  the request id for correlation with the structured logs. The service's own
-  outcomes are reported as what they are: a client that disconnected is 499,
-  the server time limit is 504 `timeout`, and a provider failure is 502
+  the request id for correlation with the structured logs. Each of the
+  service's own outcomes has its own status: a client that disconnected is 499,
+  the server time limit is 504 `timeout`, a model that stops at its output
+  token limit is 500 `truncated`, and a provider failure is 502
   `provider_error` with a fixed message, its cause logged under the request
   id rather than sent to the client.
 

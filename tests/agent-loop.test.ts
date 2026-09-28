@@ -119,4 +119,36 @@ describe('agent loop', () => {
     expect(logged).toHaveLength(1);
     expect((logged[0]?.err as Error).message).toContain('sk-secret-1234');
   });
+
+  it('reports a run the model cut off at its token limit as truncated, not done', async () => {
+    // The Anthropic and OpenAI providers both report max_tokens; the mock
+    // never does. Read as an ordinary end of turn, a cut-off answer would
+    // return as a 200, and a tool call in that turn would be dropped without
+    // a word.
+    for (const tail of [
+      [{ type: 'text', text: 'The answer is 4' }],
+      [{ type: 'tool_use', id: 't1', name: 'calculator', input: { expression: '2+2' } }],
+    ] as const) {
+      const cut: Provider = {
+        name: 'cut',
+        async *stream() {
+          yield* tail;
+          yield { type: 'stop', reason: 'max_tokens' };
+        },
+      };
+      const events: AgentEvent[] = [];
+      const run = runAgent({
+        provider: cut,
+        registry: buildRegistry(),
+        system: 'test',
+        userMessage: 'hi',
+        maxIterations: 5,
+        maxTokens: 256,
+        signal: new AbortController().signal,
+      });
+      for await (const event of run) events.push(event);
+      expect(events.at(-1)).toMatchObject({ type: 'error', code: 'truncated' });
+      expect(events.some((e) => e.type === 'done')).toBe(false);
+    }
+  });
 });

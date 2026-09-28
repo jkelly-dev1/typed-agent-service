@@ -36,17 +36,12 @@ describe('provider resolution', () => {
 /**
  * The rule above is only worth what its consumer honors.
  *
- * resolveProviderName was fully tested and getProvider, the function that
- * decides what the RUNNING SERVICE actually talks to, was not called by any
- * test at all. Replacing its one line
- *     const name = resolveProviderName(config);
- * with
- *     const name = config.AGENT_PROVIDER;
- * left every test above green, and every test in the repository green, while
- * the service constructed a real network provider with `undefined` for its
- * API key. The guard passed; the thing it guards did not use it.
+ * getProvider is what the running service calls, and tests of
+ * resolveProviderName alone do not prove getProvider honors the rule. If
+ * getProvider read `config.AGENT_PROVIDER` directly, every test above would
+ * pass while the service built a real network provider with no API key.
  *
- * So these assert the CONSTRUCTED provider, not the resolved name.
+ * These tests assert the CONSTRUCTED provider, not the resolved name.
  */
 describe('getProvider honors the resolution rule', () => {
   const nameOf = (env: Record<string, string>) => getProvider(loadConfig(env)).constructor.name;

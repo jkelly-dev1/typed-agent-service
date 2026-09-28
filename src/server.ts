@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import type { AppConfig } from './config.js';
 import { resolveProviderName } from './config.js';
@@ -30,11 +30,11 @@ const REQUEST_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
  * sent, so a path carrying markup arrives in the response body verbatim.
  * Behind a proxy that sends `nosniff` and a `default-src 'none'` CSP that is
  * inert, but this service is documented as runnable on its own, and on its own
- * it sends no security headers at all -- so the body is the only thing between
+ * it sends no security headers at all, so the body is the only thing between
  * the caller and their own renderer.
  *
  * The path is capped and everything outside an unreserved-character set is
- * PERCENT-ENCODED rather than deleted. Encoding keeps two different paths
+ * percent-encoded instead of deleted. Encoding keeps two different paths
  * distinguishable; deleting the offending characters would silently map
  * `/a<b>c` and `/abc` onto one string, and a 404 that cannot tell you which
  * route was missing is not worth printing.
@@ -51,6 +51,60 @@ export function safePathForProblem(url: string): string {
       character.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'),
   );
   return path.length > MAX_PATH_IN_PROBLEM ? `${encoded}%E2%80%A6` : encoded;
+}
+
+/**
+ * A request Fastify rejects before routing. Its default bodies echo the raw
+ * path, so each is answered like the 404 instead, with the path encoded and
+ * capped. Fastify sends three errors here, and each keeps its own status: a
+ * URL it cannot decode is 400, a route parameter over `maxParamLength` is 414,
+ * and a failed async route constraint is 500.
+ */
+export function frameworkProblem(err: { code?: string }, url: string, requestId: string) {
+  const path = safePathForProblem(url);
+  const [status, title, code, detail] =
+    err.code === 'FST_ERR_BAD_URL'
+      ? [400, 'Bad Request', 'bad_url', `Malformed request path ${path}`]
+      : err.code === 'FST_ERR_MAX_PARAM_LENGTH'
+        ? [414, 'URI Too Long', 'param_too_long', `A path parameter is too long in ${path}`]
+        : [500, 'Internal Server Error', 'internal_error', 'An unexpected error occurred'];
+  return { type: 'about:blank', title, status, detail, code, requestId };
+}
+
+/**
+ * A request that is not HTTP at all never reaches a route, a hook or the error
+ * handler: Node's parser rejects it and Fastify writes a reply straight to the
+ * socket. This writes that reply as problem+json. There is no request, so the
+ * request id is a fresh one, and the one log line written here carries it with
+ * the parser's error code. Fastify calls this bound to the app instance.
+ */
+export function writeClientErrorProblem(
+  this: FastifyInstance,
+  err: NodeJS.ErrnoException,
+  socket: import('node:net').Socket,
+): void {
+  if (err.code === 'ECONNRESET' || socket.destroyed) return;
+  const [status, title] =
+    err.code === 'ERR_HTTP_REQUEST_TIMEOUT' ? [408, 'Request Timeout']
+      : err.code === 'HPE_HEADER_OVERFLOW' ? [431, 'Request Header Fields Too Large']
+        : [400, 'Bad Request'];
+  const requestId = randomUUID();
+  this.log.info({ requestId, code: err.code }, 'client error');
+  const body = JSON.stringify({
+    type: 'about:blank',
+    title,
+    status,
+    detail: 'The request could not be parsed as HTTP',
+    code: 'bad_request',
+    requestId,
+  });
+  if (socket.writable) {
+    socket.write(
+      `HTTP/1.1 ${status} ${title}\r\nContent-Type: application/problem+json; charset=utf-8\r\n` +
+        `Content-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+    );
+  }
+  socket.destroy();
 }
 
 export function buildApp(opts: BuildAppOptions): FastifyInstance {
@@ -72,6 +126,16 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
       return typeof supplied === 'string' && REQUEST_ID.test(supplied) ? supplied : randomUUID();
     },
     requestIdHeader: false,
+    frameworkErrors: (err, request, reply) => {
+      const problem = frameworkProblem(err, request.url, request.id);
+      if (problem.status >= 500) request.log.error({ err }, 'request failed');
+      // Typed loosely by Fastify for this hook; it is an ordinary reply.
+      void (reply as unknown as FastifyReply)
+        .status(problem.status)
+        .header('content-type', 'application/problem+json; charset=utf-8')
+        .send(problem);
+    },
+    clientErrorHandler: writeClientErrorProblem,
   });
 
   // Typed error boundary: every thrown error becomes problem+json exactly once.

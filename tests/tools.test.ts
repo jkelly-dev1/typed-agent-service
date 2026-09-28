@@ -44,6 +44,12 @@ describe('unit conversion', () => {
   it('refuses cross-quantity conversion', () => {
     expect(() => convert(1, 'kg', 'm')).toThrow(/Cannot convert/);
   });
+
+  it('refuses a temperature below absolute zero instead of converting it', () => {
+    expect(() => convert(-500, 'c', 'k')).toThrow(/absolute zero/);
+    expect(() => convert(-1, 'k', 'c')).toThrow(/absolute zero/);
+    expect(convert(-273.15, 'c', 'k')).toBeCloseTo(0, 9);
+  });
 });
 
 describe('tool registry (Zod boundary)', () => {

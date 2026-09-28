@@ -35,20 +35,20 @@ interface CompletedRun {
 
 /**
  * A terminal error event becomes a problem+json status, and each of the
- * service's own controls is reported as what it is: a client that left is 499,
+ * service's own controls gets its own status: a client that left is 499,
  * the server time limit is 504, and the iteration cap is 500.
  *
- * THE CAP IS NOT 502. 502 states that an upstream server returned something
- * invalid, and when the cap is reached every provider call has SUCCEEDED --
- * the service stopped because its own configured budget ran out. Reporting
+ * The cap is not 502. That status states an upstream server returned something
+ * invalid, and when the cap is reached every provider call has succeeded: the
+ * service stopped because its own configured budget ran out. Reporting
  * that as an upstream failure sends whoever is debugging to the wrong system.
  * 500 says only "this end", which is true, and the body carries the code, the
- * cap and the count, which is what makes the response actionable.
+ * cap and the count, which is what the caller needs to act on it.
  *
- * 429 is the other candidate and is not used: it is scoped to request RATE and
+ * The other candidate, 429, is not used: it is scoped to request RATE and
  * it invites a retry, and an identical retry reaches the same cap immediately.
  * If the cap ever becomes a per-request budget the caller can raise, 429
- * becomes the honest answer and this mapping should change with it.
+ * becomes the right answer and this mapping should change with it.
  *
  * A code absent from this table is a provider failure, which IS 502.
  */
@@ -56,6 +56,9 @@ const STATUS_BY_CODE: Record<string, number> = {
   aborted: 499,
   timeout: 504,
   max_iterations_exceeded: 500,
+  // The model stopped at the configured output limit. The limit is this
+  // service's setting, so the incomplete run is reported as this end's.
+  truncated: 500,
 };
 
 function parseBody(request: FastifyRequest): z.infer<typeof ChatBodySchema> {

@@ -1,5 +1,5 @@
 /**
- * End-to-end demo over real HTTP: starts the service on an ephemeral port,
+ * Demo over real HTTP, from request to answer: starts the service on an ephemeral port,
  * exercises the SSE stream, the buffered JSON endpoint, the validation
  * boundary, and the health check, then shuts down. Offline by default (mock
  * provider); set AGENT_PROVIDER=anthropic + ANTHROPIC_API_KEY for a real model.

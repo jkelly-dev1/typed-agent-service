@@ -34,6 +34,8 @@ const ALL_UNITS = [
 
 const UnitEnum = z.enum(ALL_UNITS);
 
+const ABSOLUTE_ZERO_C = -273.15;
+
 function toCelsius(value: number, unit: string): number {
   switch (unit) {
     case 'c': return value;
@@ -65,7 +67,14 @@ export function convert(value: number, from: string, to: string): number {
     (TEMPERATURE_UNITS as readonly string[]).includes(f) &&
     (TEMPERATURE_UNITS as readonly string[]).includes(t)
   ) {
-    return fromCelsius(toCelsius(value, f), t);
+    const celsius = toCelsius(value, f);
+    // Below 0 K is not a temperature, and converting it would report a
+    // physically impossible value as a successful result. The tolerance is
+    // for the floating-point form of -459.67 F.
+    if (celsius < ABSOLUTE_ZERO_C - 1e-9) {
+      throw new Error(`${value} ${from} is below absolute zero`);
+    }
+    return fromCelsius(celsius, t);
   }
   throw new Error(`Cannot convert between '${from}' and '${to}' (different quantities or unknown units)`);
 }

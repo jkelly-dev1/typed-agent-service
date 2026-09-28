@@ -33,9 +33,9 @@ export function isTerminal(event: AgentEvent): boolean {
 }
 
 function parseFrame(raw: string): AgentEvent | null {
-  // The `event:` line is redundant with data.type and is deliberately not
-  // trusted: if the two ever disagree, the payload is the one carrying the
-  // fields the UI reads.
+  // The `event:` line is redundant with data.type and is not trusted: if the
+  // two ever disagree, the payload is the one carrying the fields the UI
+  // reads.
   const dataLine = raw.split('\n').find((l) => l.startsWith('data:'));
   if (!dataLine) return null;
   let parsed: unknown;

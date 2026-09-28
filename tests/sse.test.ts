@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import type { Provider } from '../src/providers/types.js';
 import { parseSse, testApp } from './helpers.js';
 
 let app: FastifyInstance | undefined;
@@ -23,6 +24,7 @@ describe('POST /v1/chat/stream (SSE)', () => {
     const frames = parseSse(res.payload);
     const kinds = frames.map((f) => f.event);
     expect(kinds[0]).toBe('tool_call');
+    expect(frames[0]?.data['input']).toEqual({ expression: '(2+3)*4' });
     expect(kinds[1]).toBe('tool_result');
     expect(kinds).toContain('token');
     expect(kinds.at(-1)).toBe('done');
@@ -75,5 +77,28 @@ describe('POST /v1/chat/stream (SSE)', () => {
       event: 'error',
       data: { code: 'max_iterations_exceeded' },
     });
+  });
+
+  it('sends a fixed message, not the error text, when writing a frame fails', async () => {
+    // The route's own catch branch. A tool input the frame writer cannot
+    // serialize (a BigInt) makes the write itself throw, and the text of that
+    // error must stay in the log, like every provider failure does.
+    const provider: Provider = {
+      name: 'unserializable',
+      async *stream() {
+        yield { type: 'tool_use', id: 't1', name: 'calculator', input: { n: 1n } };
+        yield { type: 'stop', reason: 'tool_use' };
+      },
+    };
+    app = testApp({}, provider);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/chat/stream',
+      payload: { message: 'hi' },
+    });
+    const last = parseSse(res.payload).at(-1);
+    expect(last?.event).toBe('error');
+    expect(last?.data).toMatchObject({ code: 'stream_failed', message: 'The stream failed' });
+    expect(res.payload).not.toContain('BigInt');
   });
 });

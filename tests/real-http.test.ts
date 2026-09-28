@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import type { Provider, ProviderEvent, ProviderRequest } from '../src/providers/types.js';
 import { parseSse, testApp } from './helpers.js';
@@ -120,5 +120,52 @@ describe('over a real HTTP socket', () => {
 
     const signal = await withDeadline(provider.aborted, 3000);
     expect((signal.reason as { name?: string }).name).toBe('TimeoutError');
+  });
+  it('answers a request that is not HTTP with problem+json', async () => {
+    // Fastify writes these straight to the socket from its client-error
+    // handler, before any route, hook or error handler runs.
+    const base = await listen();
+    const logInfo = vi.spyOn(app!.log, 'info');
+    const { port } = new URL(base);
+    const { connect } = await import('node:net');
+    for (const raw of ['GARBAGE\r\n\r\n',
+                       'POST /v1/chat HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n']) {
+      const reply = await new Promise<string>((resolve, reject) => {
+        const socket = connect(Number(port), '127.0.0.1', () => socket.write(raw));
+        let data = '';
+        socket.on('data', (chunk) => { data += chunk.toString(); });
+        socket.on('close', () => resolve(data));
+        socket.on('error', reject);
+      });
+      expect(reply).toMatch(/^HTTP\/1\.1 400 /);
+      expect(reply).toContain('application/problem+json');
+      expect(reply).toContain('"code":"bad_request"');
+      // The id in the body is only useful if a log line carries it too.
+      const { requestId } = JSON.parse(reply.slice(reply.indexOf('\r\n\r\n') + 4)) as {
+        requestId: string;
+      };
+      expect(logInfo).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId, code: expect.any(String) }),
+        'client error',
+      );
+    }
+  });
+
+  it('answers request headers over the size limit as 431 problem+json', async () => {
+    // Node's default limit on the whole header block is 16 KiB.
+    const base = await listen();
+    const { port } = new URL(base);
+    const { connect } = await import('node:net');
+    const raw = `GET /healthz HTTP/1.1\r\nHost: x\r\nX-Big: ${'a'.repeat(20000)}\r\n\r\n`;
+    const reply = await new Promise<string>((resolve, reject) => {
+      const socket = connect(Number(port), '127.0.0.1', () => socket.write(raw));
+      let data = '';
+      socket.on('data', (chunk) => { data += chunk.toString(); });
+      socket.on('close', () => resolve(data));
+      socket.on('error', reject);
+    });
+    expect(reply).toMatch(/^HTTP\/1\.1 431 /);
+    expect(reply).toContain('application/problem+json');
+    expect(reply).toContain('"status":431');
   });
 });

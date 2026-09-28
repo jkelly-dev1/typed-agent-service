@@ -1,5 +1,5 @@
 /** Driving one run of /v1/chat/stream and handing events to the caller. */
-import { createSseParser, type AgentEvent } from './sse';
+import { createSseParser, isTerminal, type AgentEvent } from './sse';
 
 export type RunOptions = {
   message: string;
@@ -43,9 +43,22 @@ export async function runChat({ message, signal, onEvent, fetchImpl = fetch }: R
   const decoder = new TextDecoder();
   const push = createSseParser();
 
+  // A body that ends with no done or error frame is a cut connection, not a
+  // finished run; without this the partial answer reads as the whole one.
+  let terminal = false;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    for (const event of push(decoder.decode(value, { stream: true }))) onEvent(event);
+    for (const event of push(decoder.decode(value, { stream: true }))) {
+      if (isTerminal(event)) terminal = true;
+      onEvent(event);
+    }
+  }
+  if (!terminal && !signal.aborted) {
+    onEvent({
+      type: 'error',
+      code: 'incomplete_stream',
+      message: 'The stream ended before the run finished',
+    });
   }
 }
